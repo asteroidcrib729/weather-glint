@@ -2,11 +2,28 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /frontend
+    target-branch: pre-production
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    groups:
+      react-runtime:
+        applies-to: version-updates
+        patterns:
+          - react
+          - react-dom
+    ignore:
+      # CI uses Node 24; keep its runtime types on the same major version.
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+      # eslint-config-next 16.3.6's React plugin fails with ESLint 10.
+      - dependency-name: eslint
+        update-types:
+          - version-update:semver-major
   - package-ecosystem: uv
     directory: /
+    target-branch: pre-production
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
