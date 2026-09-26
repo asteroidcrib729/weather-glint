@@ -6,24 +6,44 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # Major upgrades need a separate compatibility pass; security updates still target main.
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
     groups:
       react-runtime:
         applies-to: version-updates
         patterns:
           - react
           - react-dom
-    ignore:
-      # CI uses Node 24; keep its runtime types on the same major version.
-      - dependency-name: "@types/node"
+      routine-frontend:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - react
+          - react-dom
         update-types:
-          - version-update:semver-major
-      # eslint-config-next 16.3.6's React plugin fails with ESLint 10.
-      - dependency-name: eslint
-        update-types:
-          - version-update:semver-major
+          - minor
+          - patch
   - package-ecosystem: uv
     directory: /
     target-branch: pre-production
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    allow:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-minor
+          - version-update:semver-patch
+    groups:
+      routine-python:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
