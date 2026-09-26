@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Install uv
+        run: python -m pip install uv==0.12.9
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Ruff lint
+        run: uv run ruff check backend
+      - name: Ruff format
+        run: uv run ruff format --check backend
+      - name: Type check
+        run: uv run mypy backend
+      - name: Check frontend API contract
+        run: uv run python -m backend.scripts.check_api_types
+      - name: Test with coverage
+        run: uv run pytest backend/tests --cov=backend.app --cov-report=term-missing --cov-fail-under=85
+      - name: Audit Python dependencies
+        run: uv audit
+      - name: Check committed source for credential patterns
+        shell: bash
+        run: |
+          if rg -n 'OPENWEATHER_API_KEY\s*=\s*["\x27][A-Za-z0-9]{20,}' backend; then
+            echo 'A credential appears to be hard-coded in source.'
+            exit 1
+          fi
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+      - name: Type check
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Unit tests
+        working-directory: frontend
+        run: npm run test
+      - name: Production build
+        working-directory: frontend
+        run: npm run build
+      - name: Audit npm dependencies
+        working-directory: frontend
+        run: npm audit --audit-level=high
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: End-to-end tests
+        working-directory: frontend
+        run: npm run test:e2e
