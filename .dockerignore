@@ -1,0 +1,14 @@
+.git
+.venv
+.uv-cache
+frontend/node_modules
+frontend/.next
+frontend/coverage
+frontend
+deployment-backups
+development-plans
+deploy
+.github
+compose.yaml
+render.yaml
+.env*
