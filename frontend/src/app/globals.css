@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+/* The theme provider sets data-theme before first paint. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* A shared keyboard indicator also covers links and dynamically rendered controls. */
+@layer base {
+  :focus-visible {
+    outline: 3px solid #075f5a;
+    outline-offset: 3px;
+  }
+
+  [data-theme="dark"] :focus-visible {
+    outline-color: #74e1ce;
+  }
+}
