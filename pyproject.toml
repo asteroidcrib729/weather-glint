@@ -22,7 +22,7 @@ redundant-cast = "warn"
 [dependency-groups]
 dev = [
   "httpx2>=2,<3",
-  "mypy>=1.17,<2",
+  "mypy>=1.17,<3",
   "pytest>=8.4,<10",
   "pytest-asyncio>=1.1,<2",
   "pytest-cov>=6.2,<8",
