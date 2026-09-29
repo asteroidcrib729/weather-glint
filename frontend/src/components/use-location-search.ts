@@ -19,30 +19,56 @@ export function useLocationSearch() {
     const timer = window.setTimeout(() => {
       searchLocations(text, controller.signal)
         .then((matches) => {
-          if (controller.signal.aborted || currentVersion !== version.current) return;
-          setResults(matches); setActiveIndex(0); setSearchError("");
+          if (controller.signal.aborted || currentVersion !== version.current)
+            return;
+          setResults(matches);
+          setActiveIndex(0);
+          setSearchError("");
         })
         .catch((error: unknown) => {
-          if (controller.signal.aborted || currentVersion !== version.current) return;
-          if (error instanceof DOMException && error.name === "AbortError") return;
-          setResults([]); setSearchError(apiErrorMessage(error));
+          if (controller.signal.aborted || currentVersion !== version.current)
+            return;
+          if (error instanceof DOMException && error.name === "AbortError")
+            return;
+          setResults([]);
+          setSearchError(apiErrorMessage(error));
         })
         .finally(() => {
-          if (!controller.signal.aborted && currentVersion === version.current) setSearching(false);
+          if (!controller.signal.aborted && currentVersion === version.current)
+            setSearching(false);
         });
     }, 300);
-    return () => { window.clearTimeout(timer); controller.abort(); };
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
   }, [query]);
 
   function updateQuery(value: string) {
     version.current += 1;
-    setQuery(value); setResults([]); setSearchError(""); setSearching(value.trim().length >= 2);
+    setQuery(value);
+    setResults([]);
+    setSearchError("");
+    setSearching(value.trim().length >= 2);
   }
 
   function clearSearch() {
     version.current += 1;
-    setQuery(""); setResults([]); setSearchError(""); setSearching(false);
+    setQuery("");
+    setResults([]);
+    setSearchError("");
+    setSearching(false);
   }
 
-  return { query, results, searchError, searching, activeIndex, setActiveIndex, setSearchError, updateQuery, clearSearch };
+  return {
+    query,
+    results,
+    searchError,
+    searching,
+    activeIndex,
+    setActiveIndex,
+    setSearchError,
+    updateQuery,
+    clearSearch,
+  };
 }

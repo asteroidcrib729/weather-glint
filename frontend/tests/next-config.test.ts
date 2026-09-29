@@ -11,7 +11,10 @@ it("routes production API requests to the configured Render origin", async () =>
   vi.stubEnv("VERCEL", "1");
   vi.stubEnv("API_PROXY_TARGET", "https://example.onrender.com");
   await expect(config.rewrites?.()).resolves.toEqual([
-    { source: "/api/:path*", destination: "https://example.onrender.com/api/:path*" },
+    {
+      source: "/api/:path*",
+      destination: "https://example.onrender.com/api/:path*",
+    },
   ]);
 });
 

@@ -6,7 +6,7 @@ Phase 2 reliability rules, operating metrics, performance baseline, and the stil
 
 Remaining product work is tracked in [Development Plan 03](development-plans/development-plan-03.md#open-problems).
 
-A weather application with a FastAPI backend and a Next.js frontend. It shows current conditions, the next 24 hours, and a seven-day forecast. Weather comes from [Open-Meteo](https://open-meteo.com/); place search uses its [GeoNames-based geocoding service](https://open-meteo.com/en/docs/geocoding-api). The service is public and has no authentication.
+A weather application with a FastAPI backend and a Next.js frontend. It shows current conditions, the next 24 hours, and a seven-day forecast. Forecasts come from [MET Norway](https://api.met.no/); place search remains on [Open-Meteo's GeoNames-based geocoding service](https://open-meteo.com/en/docs/geocoding-api). The service is public and has no authentication.
 
 The original internship script has been removed. The current application does not need an API key.
 
@@ -41,7 +41,7 @@ Frontend styling is Tailwind-first: put layout, responsive, state, and theme sty
 
 Search a place with the keyboard or mouse. Selecting a searched place adds its name and provider ID to a shareable URL; it does not put its coordinates in the URL. The “Use my location” button requests browser permission only when clicked. Its exact coordinates are used for the current forecast request but are not saved in recent places. Previously saved browser-location entries are removed from local storage on load. Searched recent places expire after 30 days; unit and explicit Light/Dark theme preferences expire after 180 days, checked on the next visit. Device appearance is the default and follows the operating-system setting without a stored theme choice. Switching °C/°F converts the displayed forecast immediately without another API request. Saved choices can be cleared sooner with the footer control or browser site-data controls. The public [data-use explanation](frontend/src/app/data-use/page.tsx) describes these flows; it is not yet a complete privacy policy.
 
-The forecast shows the provider's location-local current-conditions time and the backend response-generation time in the location's time zone. Use “Refresh forecast” to request an update; a failed refresh keeps the previous result visible with a stale-data warning. The backend caches forecasts for five minutes, so refreshing may return a cached response. The page does not poll in the background.
+The forecast shows the provider's location-local forecast time and the backend fetch time in the location's time zone. Use “Refresh forecast” to request an update; a failed refresh keeps the previous result visible with a stale-data warning. The backend honors MET Norway's expiry and conditional-revalidation headers, so refreshing may return a cached response. MET does not supply equivalent feels-like temperature, global rain probability, or daily maximum UV in this forecast; the UI labels those fields unavailable. The precipitation tile is a next-hour forecast amount, not an observation. The page does not poll in the background.
 
 On Windows PowerShell, use `npm.cmd` if the `npm.ps1` execution policy blocks `npm`.
 
@@ -53,13 +53,13 @@ On Windows PowerShell, use `npm.cmd` if the `npm.ps1` execution policy blocks `n
 | `POST /api/v1/locations` with JSON `{"query":"Karachi","limit":5}` | Search places and postal codes |
 | `POST /api/v1/weather` with JSON `{"latitude":24.8608,"longitude":67.0104,"units":"metric"}` | Current, hourly, and daily weather |
 
-The browser uses the POST routes so searches and coordinates do not appear in its request URLs. The existing GET variants remain available for compatibility; callers should avoid them for sensitive location data. The Open-Meteo API itself still uses query parameters. `units` accepts `metric` or `imperial`. The API returns application-owned response models, with location-local timestamps and an explicit time zone and unit labels. Errors from the provider are mapped to stable `error` and `message` fields.
+The browser uses the POST routes so searches and coordinates do not appear in its request URLs. The existing GET variants remain available for compatibility; callers should avoid them for sensitive location data. Open-Meteo geocoding and MET Norway's forecast API use query parameters upstream. `units` accepts `metric` or `imperial`; `timezone` accepts an IANA time-zone name (the browser sends the selected place's zone). The API returns application-owned response models, with location-local timestamps and explicit unit labels. Errors from the provider are mapped to stable `error` and `message` fields.
 
 ## Configuration
 
-Copy `.env.example` to `.env` only if you need to change backend defaults. The backend reads `OPEN_METEO_FORECAST_URL`, `OPEN_METEO_GEOCODING_URL`, `ALLOWED_ORIGINS`, and `RATE_LIMIT_PER_MINUTE`. Do not commit `.env` files. Browser requests use relative `/api/v1/...` URLs and never receive a provider credential.
+Copy `.env.example` to `.env` only if you need to change backend defaults. The backend uses `MET_NORWAY_FORECAST_URL`, `MET_NORWAY_USER_AGENT`, `OPEN_METEO_GEOCODING_URL`, `ALLOWED_ORIGINS`, and `RATE_LIMIT_PER_MINUTE`. The default identifying User-Agent is `WeatherGlint/1.0 (+https://github.com/asteroidcrib729/weather-glint)`. Do not commit `.env` files. Browser requests use relative `/api/v1/...` URLs.
 
-The free Open-Meteo service permits non-commercial use within its published limits. Attribution to [Open-Meteo](https://open-meteo.com/) is displayed in the UI. Check the [current terms](https://open-meteo.com/en/terms) before commercial deployment or adding advertising. Forecasts are model-based and may differ from local observations.
+The forecast credits [MET Norway](https://api.met.no/doc/License); place data credits [Open-Meteo](https://open-meteo.com/) and GeoNames. Check each provider's current terms before commercial deployment or adding advertising. Forecasts are model-based and may differ from local observations. The one-request-per-second MET limiter and 86,400-start rolling window are process-local; restarts or multiple instances do not provide a hard app-wide daily cap.
 
 ## Checks
 
@@ -74,9 +74,10 @@ npm run lint
 npm run typecheck
 npm run test
 npm run build
+npm run test:met-integration
 ```
 
-End-to-end tests use Playwright and run against the built Next.js production server with mocked API responses. Install its Chromium browser once with `npx playwright install chromium`, then run `npm run build` followed by `npm run test:e2e` in `frontend/`. The test command starts and stops its own server.
+Browser regression tests use Playwright and run against the built Next.js production server with mocked API responses. Install its Chromium browser once with `npx playwright install chromium`, then run `npm run build` followed by `npm run test:e2e` in `frontend/`. The separate `npm run test:met-integration` command builds an isolated production frontend and starts a loopback fake MET/geocoding upstream plus FastAPI; it verifies the complete Next.js-to-backend adapter path without spending a live provider call or touching existing preview servers.
 
 When backend response models change, regenerate the frontend TypeScript contract with `uv run python -m backend.scripts.check_api_types --write`, then run the check command above and the frontend tests. Do not edit `frontend/src/lib/api-types.ts` by hand.
 
@@ -84,7 +85,7 @@ When backend response models change, regenerate the frontend TypeScript contract
 
 The active public target is **Vercel for Next.js** (`frontend/`) and **Render for FastAPI** (`render.yaml` and `backend/Dockerfile`). Vercel rewrites `/api/*` to the Render HTTPS origin using the build-time `API_PROXY_TARGET` setting. The browser still uses one Vercel origin. See the separate [local-preview and public-deployment steps](development-plans/DEPLOYMENT.md). The earlier VM/Compose/Caddy approach is preserved in the [VM restore kit](deployment-backups/virtual-machine/README.md), including its original detailed guide and deployment files.
 
-The backend disables access logs in its container command. Review Vercel and Render edge/request logging before public use; browser requests now use POST bodies, but the compatibility GET routes and Open-Meteo upstream requests still use query strings. The in-memory cache and app rate limiter are per backend process; expired entries are pruned periodically.
+The backend disables access logs in its container command. Review Vercel and Render edge/request logging before public use; browser requests now use POST bodies, but compatibility GET routes and both provider requests still use query strings. The in-memory caches and app rate limiters are per backend process; expired entries are pruned periodically.
 
 ## Legacy credential
 

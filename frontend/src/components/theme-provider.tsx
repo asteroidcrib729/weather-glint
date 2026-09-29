@@ -1,7 +1,17 @@
 "use client";
 
-import { createContext, useContext, useLayoutEffect, useState, type ReactNode } from "react";
-import { restoreThemePreference, THEME_STORAGE_KEY, type ThemePreference } from "@/lib/browser-storage";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  restoreThemePreference,
+  THEME_STORAGE_KEY,
+  type ThemePreference,
+} from "@/lib/browser-storage";
 
 type ThemeContextValue = {
   preference: ThemePreference;
@@ -11,8 +21,11 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function applyTheme(preference: ThemePreference) {
-  const deviceIsDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  document.documentElement.dataset.theme = preference === "device" ? (deviceIsDark ? "dark" : "light") : preference;
+  const deviceIsDark = window.matchMedia(
+    "(prefers-color-scheme: dark)",
+  ).matches;
+  document.documentElement.dataset.theme =
+    preference === "device" ? (deviceIsDark ? "dark" : "light") : preference;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
@@ -23,9 +36,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const sync = () => {
       let saved: ReturnType<typeof restoreThemePreference> = null;
       try {
-        saved = restoreThemePreference(localStorage.getItem(THEME_STORAGE_KEY), Date.now());
+        saved = restoreThemePreference(
+          localStorage.getItem(THEME_STORAGE_KEY),
+          Date.now(),
+        );
         if (!saved) localStorage.removeItem(THEME_STORAGE_KEY);
-      } catch { /* Storage may be disabled. */ }
+      } catch {
+        /* Storage may be disabled. */
+      }
       const next = saved?.value ?? "device";
       setPreference(next);
       applyTheme(next);
@@ -44,11 +62,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     applyTheme(next);
     try {
       if (next === "device") localStorage.removeItem(THEME_STORAGE_KEY);
-      else localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ value: next, savedAt: Date.now() }));
-    } catch { /* Theme still works for this visit. */ }
+      else
+        localStorage.setItem(
+          THEME_STORAGE_KEY,
+          JSON.stringify({ value: next, savedAt: Date.now() }),
+        );
+    } catch {
+      /* Theme still works for this visit. */
+    }
   }
 
-  return <ThemeContext value={{ preference, chooseTheme }}>{children}</ThemeContext>;
+  return (
+    <ThemeContext value={{ preference, chooseTheme }}>{children}</ThemeContext>
+  );
 }
 
 export function useTheme() {

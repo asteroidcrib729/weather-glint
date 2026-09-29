@@ -4,6 +4,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    met_norway_forecast_url: str = "https://api.met.no/weatherapi/locationforecast/2.0/compact"
+    met_norway_user_agent: str = (
+        "WeatherGlint/1.0 (+https://github.com/asteroidcrib729/weather-glint)"
+    )
+    met_norway_pilot_on_startup: bool = False
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     open_meteo_forecast_url: str = "https://api.open-meteo.com/v1/forecast"

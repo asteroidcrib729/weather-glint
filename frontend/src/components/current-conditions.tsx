@@ -7,6 +7,7 @@ import {
   formatPrecipitation,
   formatProbability,
   formatTemperature,
+  formatZonedDateTime,
   weatherSymbol,
   type Location,
   type UnitSystem,
@@ -36,23 +37,31 @@ export function CurrentConditions({
   location,
   units,
   locale,
+  now,
   onChangeUnits,
 }: {
   weather: Weather;
   location: Location;
   units: UnitSystem;
   locale: string;
+  now: number;
   onChangeUnits: (units: UnitSystem) => void;
 }) {
   const current = weather.current;
   const today = weather.daily[0];
+  const showClouds = current.weather_code !== 0 && current.weather_code !== 1;
   const region = [location.admin1, location.country].filter(Boolean).join(", ");
+  const localNow = formatZonedDateTime(now, weather.timezone, locale);
   if (!today) return null;
 
   return (
     <>
       <section
-        className="hero-weather relative min-h-[376px] overflow-hidden rounded-[22px] bg-[linear-gradient(113deg,#086579_0%,#08788a_52%,#0a9b9b_100%)] text-white shadow-[0_18px_34px_#075a7320] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_82%_46%,#64d6bc44_0,transparent_30%)] before:content-[''] max-[950px]:min-h-[375px] max-[670px]:min-h-[376px] dark:bg-[linear-gradient(113deg,#123c55_0%,#125d6e_52%,#147a79_100%)]"
+        className={`hero-weather relative min-h-[376px] overflow-hidden rounded-[22px] text-white shadow-[0_18px_34px_#075a7320] before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_82%_46%,#64d6bc44_0,transparent_30%)] before:content-[''] max-[950px]:min-h-[375px] max-[670px]:min-h-[376px] ${
+          current.is_day
+            ? "bg-[linear-gradient(113deg,#086579_0%,#08788a_52%,#0a9b9b_100%)] dark:bg-[linear-gradient(113deg,#123c55_0%,#125d6e_52%,#147a79_100%)]"
+            : "bg-[linear-gradient(113deg,#102e4a_0%,#144d68_52%,#126c78_100%)] dark:bg-[linear-gradient(113deg,#10293f_0%,#15445a_52%,#115b68_100%)]"
+        }`}
         aria-labelledby="current-heading"
       >
         <div className="hero-main relative z-2 px-10 pt-[34px] pb-[65px] max-[670px]:px-[25px] max-[670px]:pt-[25px]">
@@ -72,16 +81,25 @@ export function CurrentConditions({
             className="m-0 text-[31px] leading-[1.2] font-extrabold tracking-[-.035em] wrap-anywhere max-[670px]:text-[27px] max-[390px]:text-2xl"
             dir="auto"
           >
-            {location.name}{region ? "," : ""}
-            {region && <span
-              className="location-region ml-3 text-[13px] font-medium tracking-normal text-[#b7ece5] wrap-anywhere max-[670px]:mt-1 max-[670px]:ml-0 max-[670px]:block"
-              dir="auto"
-            >
-              {" "}{region}
-            </span>}
+            {location.name}
+            {region ? "," : ""}
+            {region && (
+              <span
+                className="location-region ml-3 text-[13px] font-medium tracking-normal text-[#b7ece5] wrap-anywhere max-[670px]:mt-1 max-[670px]:ml-0 max-[670px]:block"
+                dir="auto"
+              >
+                {" "}
+                {region}
+              </span>
+            )}
           </h2>
-          <p className="hero-date mt-2 mb-[17px] text-[13px] text-[#b9e5e4]">
-            {formatDate(current.time, locale)} ·{" "}
+          <p className="hero-date mt-2 text-[13px] text-[#b9e5e4]">
+            {localNow
+              ? `${localNow.date} · ${localNow.clock} local time`
+              : "Local time unavailable"}
+          </p>
+          <p className="hero-forecast-time mt-1 mb-[17px] text-[11px] text-[#b9e5e4]">
+            Forecast valid: {formatDate(current.time, locale)} at{" "}
             {formatClock(current.time, locale)} local time
           </p>
           <div className="temperature-row flex min-h-[115px] flex-wrap items-center gap-3 max-[670px]:h-[98px]">
@@ -121,8 +139,14 @@ export function CurrentConditions({
             {current.condition}
           </p>
           <p className="hero-feels text-[13px] text-[#c0e8e8]">
-            Feels like{" "}
-            {formatTemperature(current.apparent_temperature, units, locale)}
+            {current.apparent_temperature === null ? (
+              "Feels-like temperature not available"
+            ) : (
+              <>
+                Feels like{" "}
+                {formatTemperature(current.apparent_temperature, units, locale)}
+              </>
+            )}
           </p>
           <div className="hero-range mt-[17px] flex gap-[17px] text-[13px] font-bold">
             <span>
@@ -137,14 +161,50 @@ export function CurrentConditions({
           className="hero-art absolute top-[11%] right-[7%] z-1 h-[295px] w-[380px] max-[950px]:-right-[6%] max-[670px]:top-[100px] max-[670px]:-right-[130px] max-[670px]:origin-top-right max-[670px]:scale-[.72] max-[670px]:opacity-60 max-[390px]:opacity-50"
           aria-hidden="true"
         >
-          <div className="sun-glow absolute top-0 right-[53px] size-[270px] rounded-full bg-[#dafbe162] blur-[22px]" />
-          <div className="sun-disc absolute top-7 right-[71px] size-[207px] rounded-full bg-[linear-gradient(135deg,#fff6d3,#ffce79)] shadow-[0_0_45px_#f8e4ac8c]" />
-          <div
-            className={`${cloud} cloud-back right-[-15px] bottom-[52px] h-[60px] w-[210px] opacity-[.58] before:top-[-50px] before:left-[27px] before:size-[100px] after:top-[-27px] after:right-[26px] after:size-[74px]`}
-          />
-          <div
-            className={`${cloud} cloud-front right-[105px] bottom-[18px] h-[66px] w-[220px] before:top-[-55px] before:left-[25px] before:size-[112px] after:top-[-30px] after:right-[23px] after:size-[83px]`}
-          />
+          {current.is_day ? (
+            <>
+              <div className="sun-glow absolute top-0 right-[53px] size-[270px] rounded-full bg-[#dafbe162] blur-[22px]" />
+              <div className="sun-disc absolute top-7 right-[71px] size-[207px] rounded-full bg-[linear-gradient(135deg,#fff6d3,#ffce79)] shadow-[0_0_45px_#f8e4ac8c]" />
+            </>
+          ) : (
+            <>
+              <div className="moon-glow absolute top-0 right-[53px] size-[270px] rounded-full bg-[#b6e8ed57] blur-[25px]" />
+              <svg
+                className="moon-disc absolute top-7 right-[71px] size-[207px] drop-shadow-[0_0_35px_#c9f0f899]"
+                viewBox="0 0 200 200"
+                aria-hidden="true"
+              >
+                <mask
+                  id="hero-moon-mask"
+                  maskUnits="userSpaceOnUse"
+                  x="0"
+                  y="0"
+                  width="200"
+                  height="200"
+                >
+                  <circle cx="100" cy="100" r="82" fill="white" />
+                  <circle cx="140" cy="61" r="78" fill="black" />
+                </mask>
+                <circle
+                  cx="100"
+                  cy="100"
+                  r="82"
+                  fill="#fff3cf"
+                  mask="url(#hero-moon-mask)"
+                />
+              </svg>
+            </>
+          )}
+          {showClouds && (
+            <>
+              <div
+                className={`${cloud} cloud-back right-[-15px] bottom-[52px] h-[60px] w-[210px] opacity-[.58] before:top-[-50px] before:left-[27px] before:size-[100px] after:top-[-27px] after:right-[26px] after:size-[74px]`}
+              />
+              <div
+                className={`${cloud} cloud-front right-[105px] bottom-[18px] h-[66px] w-[220px] before:top-[-55px] before:left-[25px] before:size-[112px] after:top-[-30px] after:right-[23px] after:size-[83px]`}
+              />
+            </>
+          )}
         </div>
         <div className="hero-bottom absolute right-0 bottom-0 left-0 z-3 flex h-[43px] items-center justify-between border-t border-[#b4f3eb32] bg-[#053d5536] px-10 text-[11px] text-[#bae3e2] max-[670px]:px-6">
           A fresh perspective on your forecast{" "}
@@ -187,14 +247,24 @@ export function CurrentConditions({
           <span className={metricIcon} aria-hidden="true">
             ◈
           </span>
-          <span className={metricLabel}>PRECIPITATION</span>
+          <span className={metricLabel}>
+            {weather.source === "MET Norway"
+              ? "NEXT-HOUR PRECIPITATION"
+              : "PRECIPITATION"}
+          </span>
           <strong className={metricValue}>
             {formatPrecipitation(current.precipitation, units, locale)}{" "}
-            <small className="text-[13px] font-semibold tracking-normal text-[#365761] dark:text-[#bcd4d7]">
-              {weather.units.precipitation}
-            </small>
+            {current.precipitation !== null && (
+              <small className="text-[13px] font-semibold tracking-normal text-[#365761] dark:text-[#bcd4d7]">
+                {weather.units.precipitation}
+              </small>
+            )}
           </strong>
-          <span className={metricDetail}>Current amount</span>
+          <span className={metricDetail}>
+            {weather.source === "MET Norway"
+              ? "Forecast amount for the next hour"
+              : "Current amount"}
+          </span>
         </div>
         <div className={metric}>
           <span className={metricIcon} aria-hidden="true">
@@ -202,7 +272,7 @@ export function CurrentConditions({
           </span>
           <span className={metricLabel}>DAYLIGHT</span>
           <strong className={metricValue}>
-            {current.is_day ? "Daytime" : "Nighttime"}
+            {current.is_day ? "Daytime" : "Night-Time"}
           </strong>
           <span className={metricDetail}>At this location</span>
         </div>

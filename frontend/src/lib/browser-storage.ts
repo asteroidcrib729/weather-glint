@@ -18,12 +18,23 @@ export type SavedRecentLocation = { location: Location; savedAt: number };
 export type SavedUnitPreference = { value: UnitSystem; savedAt: number };
 export type SavedThemePreference = { value: "light" | "dark"; savedAt: number };
 
-function isFresh(savedAt: unknown, now: number, retention: number): savedAt is number {
-  return typeof savedAt === "number" && Number.isFinite(savedAt) &&
-    savedAt <= now && now - savedAt < retention;
+function isFresh(
+  savedAt: unknown,
+  now: number,
+  retention: number,
+): savedAt is number {
+  return (
+    typeof savedAt === "number" &&
+    Number.isFinite(savedAt) &&
+    savedAt <= now &&
+    now - savedAt < retention
+  );
 }
 
-export function restoreRecentLocations(value: unknown, now: number): SavedRecentLocation[] {
+export function restoreRecentLocations(
+  value: unknown,
+  now: number,
+): SavedRecentLocation[] {
   if (!Array.isArray(value)) return [];
   const restored: SavedRecentLocation[] = [];
   const seen = new Set<number>();
@@ -34,7 +45,12 @@ export function restoreRecentLocations(value: unknown, now: number): SavedRecent
     const location = savedLocations([stamped ? record.location : item])[0];
     // Old entries lack timestamps. Preserve them once, starting a 30-day migration window.
     const savedAt = stamped ? record.savedAt : now;
-    if (!location || !isFresh(savedAt, now, RECENT_RETENTION_MS) || seen.has(location.id)) continue;
+    if (
+      !location ||
+      !isFresh(savedAt, now, RECENT_RETENTION_MS) ||
+      seen.has(location.id)
+    )
+      continue;
     restored.push({ location, savedAt });
     seen.add(location.id);
     if (restored.length === 5) break;
@@ -42,26 +58,47 @@ export function restoreRecentLocations(value: unknown, now: number): SavedRecent
   return restored;
 }
 
-export function restoreUnitPreference(raw: string | null, now: number): SavedUnitPreference | null {
+export function restoreUnitPreference(
+  raw: string | null,
+  now: number,
+): SavedUnitPreference | null {
   if (raw === null) return null;
   // Migrate the original plain-string preference without discarding the visitor's choice.
-  if (raw === "metric" || raw === "imperial") return { value: raw, savedAt: now };
+  if (raw === "metric" || raw === "imperial")
+    return { value: raw, savedAt: now };
   let parsed: unknown;
-  try { parsed = JSON.parse(raw) as unknown; } catch { return null; }
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
   if (typeof parsed !== "object" || parsed === null) return null;
   const record = parsed as Record<string, unknown>;
-  if ((record.value !== "metric" && record.value !== "imperial") ||
-      !isFresh(record.savedAt, now, UNITS_RETENTION_MS)) return null;
+  if (
+    (record.value !== "metric" && record.value !== "imperial") ||
+    !isFresh(record.savedAt, now, UNITS_RETENTION_MS)
+  )
+    return null;
   return { value: record.value, savedAt: record.savedAt };
 }
 
-export function restoreThemePreference(raw: string | null, now: number): SavedThemePreference | null {
+export function restoreThemePreference(
+  raw: string | null,
+  now: number,
+): SavedThemePreference | null {
   if (raw === null) return null;
   let parsed: unknown;
-  try { parsed = JSON.parse(raw) as unknown; } catch { return null; }
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
   if (typeof parsed !== "object" || parsed === null) return null;
   const record = parsed as Record<string, unknown>;
-  if ((record.value !== "light" && record.value !== "dark") ||
-      !isFresh(record.savedAt, now, THEME_RETENTION_MS)) return null;
+  if (
+    (record.value !== "light" && record.value !== "dark") ||
+    !isFresh(record.savedAt, now, THEME_RETENTION_MS)
+  )
+    return null;
   return { value: record.value, savedAt: record.savedAt };
 }

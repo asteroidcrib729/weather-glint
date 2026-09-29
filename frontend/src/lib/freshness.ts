@@ -1,7 +1,7 @@
 import type { Weather } from "@/lib/weather";
 
-// These are display-age budgets, not a guarantee of observation accuracy. The
-// upstream forecast may already be up to five minutes old when served from cache.
+// These are time-since-successful-response budgets, not the weather model's age.
+// MET Norway may still serve an unchanged forecast from its valid cache.
 export const FRESHNESS_WINDOWS_MS = {
   current: 15 * 60_000,
   hourly: 2 * 60 * 60_000,
@@ -16,15 +16,27 @@ export type ForecastFreshness = {
   stale: boolean;
 };
 
-export function forecastFreshness(weather: Weather, now: number, refreshFailed = false): ForecastFreshness {
+export function forecastFreshness(
+  weather: Weather,
+  now: number,
+  refreshFailed = false,
+): ForecastFreshness {
   const received = Date.parse(weather.generated_at);
-  const ageMs = Number.isFinite(received) && received <= now + 60_000 ? Math.max(0, now - received) : null;
-  const currentStale = refreshFailed || ageMs === null || ageMs >= FRESHNESS_WINDOWS_MS.current;
-  const hourlyStale = refreshFailed || ageMs === null || ageMs >= FRESHNESS_WINDOWS_MS.hourly;
-  const dailyStale = refreshFailed || ageMs === null || ageMs >= FRESHNESS_WINDOWS_MS.daily;
+  const ageMs =
+    Number.isFinite(received) && received <= now + 60_000
+      ? Math.max(0, now - received)
+      : null;
+  const currentStale =
+    refreshFailed || ageMs === null || ageMs >= FRESHNESS_WINDOWS_MS.current;
+  const hourlyStale =
+    refreshFailed || ageMs === null || ageMs >= FRESHNESS_WINDOWS_MS.hourly;
+  const dailyStale =
+    refreshFailed || ageMs === null || ageMs >= FRESHNESS_WINDOWS_MS.daily;
   return {
     ageMinutes: ageMs === null ? null : Math.floor(ageMs / 60_000),
-    currentStale, hourlyStale, dailyStale,
+    currentStale,
+    hourlyStale,
+    dailyStale,
     stale: currentStale || hourlyStale || dailyStale,
   };
 }

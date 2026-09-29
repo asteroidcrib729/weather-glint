@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CurrentConditions } from "@/components/current-conditions";
+import { DocumentLink } from "@/components/document-link";
 import {
   DailyForecast,
   HourlyForecast,
@@ -16,6 +18,7 @@ import { wrap } from "@/lib/layout-classes";
 import {
   displayWeatherInUnits,
   formatClock,
+  formatDate,
   formatGeneratedAt,
   searchLocations,
   type Location,
@@ -47,19 +50,36 @@ export function WeatherDashboard() {
     forgetLocation,
     clearPreferences,
   } = useWeatherPreferences();
-  const { weather, weatherError, loading, clearForecast, refresh, reconnect } =
-    useForecast(location);
-  const [offline, setOffline] = useState(false);
   const [now, setNow] = useState(0);
+  const { weather, weatherError, loading, clearForecast, refresh, reconnect } =
+    useForecast(location, setNow);
+  const [offline, setOffline] = useState(false);
   const [feedback, setFeedback] = useState<{ text: string } | null>(null);
   const locale =
     typeof navigator === "undefined" ? "en" : navigator.language || "en";
 
   useEffect(() => {
-    const updateAge = () => setNow(Date.now());
-    updateAge();
-    const timer = window.setInterval(updateAge, 60_000);
-    return () => window.clearInterval(timer);
+    let timer: number;
+    const updateClock = () => {
+      const timestamp = Date.now();
+      setNow(timestamp);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(
+        updateClock,
+        60_000 - (timestamp % 60_000) + 20,
+      );
+    };
+    const onVisibilityChange = () => {
+      if (!document.hidden) updateClock();
+    };
+    updateClock();
+    window.addEventListener("focus", updateClock);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.clearTimeout(timer);
+      window.removeEventListener("focus", updateClock);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -183,7 +203,12 @@ export function WeatherDashboard() {
           onForget={forgetLocation}
         />
 
-        <p className="forecast-announcement sr-only" role="status" aria-live="polite" aria-atomic="true">
+        <p
+          className="forecast-announcement sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {loading
             ? `Loading forecast for ${location.name}.`
             : weatherError && !weather
@@ -193,10 +218,7 @@ export function WeatherDashboard() {
                 : ""}
         </p>
 
-        <section
-          className="forecast-content min-h-[400px]"
-          aria-busy={loading}
-        >
+        <section className="forecast-content min-h-[400px]" aria-busy={loading}>
           {offline && (
             <div className="notice mb-4 rounded-[10px] border border-[#f4d6a1] bg-[#fff1d9] px-4 py-3 text-[13px] text-[#865a17] dark:border-[#8b652e] dark:bg-[#49371d] dark:text-[#ffe0a6]">
               You are offline. Reconnect to refresh the forecast.
@@ -254,10 +276,10 @@ export function WeatherDashboard() {
                     )}{" "}
                     ({formatForecastAge(freshness?.ageMinutes ?? null)})
                     <span aria-hidden="true"> · </span>
-                    Current conditions: {formatClock(current.time, locale)}{" "}
-                    local time
+                    Forecast valid: {formatDate(current.time, locale)} at{" "}
+                    {formatClock(current.time, locale)} local time
                     {freshness?.stale && (
-                      <span className="forecast-breakdown">
+                      <span className="forecast-breakdown hidden">
                         {" "}
                         · Current {freshness.currentStale ? "stale" : "fresh"} ·
                         Hourly {freshness.hourlyStale ? "stale" : "fresh"} ·
@@ -300,12 +322,13 @@ export function WeatherDashboard() {
                 location={location}
                 units={units}
                 locale={locale}
+                now={now}
                 onChangeUnits={changeUnits}
               />
 
               <SolarDetails
                 day={today}
-                source={displayedWeather.source ?? "Open-Meteo"}
+                source={displayedWeather.source ?? "MET Norway"}
                 locale={locale}
               />
               <div className="forecast-grid grid grid-cols-[minmax(0,1fr)] gap-[18px]">
@@ -339,38 +362,50 @@ export function WeatherDashboard() {
         </span>
         <span>
           Weather data by{" "}
-          <a
+          <Link
             className={footerLink}
-            href="https://open-meteo.com/"
+            href={
+              displayedWeather?.attribution_url ??
+              "https://api.met.no/doc/License"
+            }
+            target="_blank"
+            rel="noreferrer"
+          >
+            {displayedWeather?.source ?? "MET Norway"}
+          </Link>{" "}
+          · Place search via{" "}
+          <Link
+            className={footerLink}
+            href="https://open-meteo.com/en/docs/geocoding-api"
             target="_blank"
             rel="noreferrer"
           >
             Open-Meteo
-          </a>{" "}
+          </Link>{" "}
           · Location data by{" "}
-          <a
+          <Link
             className={footerLink}
             href="https://www.geonames.org/"
             target="_blank"
             rel="noreferrer"
           >
             GeoNames
-          </a>{" "}
+          </Link>{" "}
           ·{" "}
-          <a
+          <Link
             className={footerLink}
             href="https://creativecommons.org/licenses/by/4.0/"
             target="_blank"
             rel="noreferrer"
           >
             CC BY 4.0
-          </a>{" "}
+          </Link>{" "}
           (data adapted for display)
         </span>
         <span>
-          <a className={footerLink} href="/data-use">
+          <DocumentLink className={footerLink} href="/data-use">
             Data use
-          </a>{" "}
+          </DocumentLink>{" "}
           ·{" "}
           <button
             type="button"
