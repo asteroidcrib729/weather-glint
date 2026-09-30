@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "weather-glint"
 version = "0.1.0"
-description = "Weather Glint: a weather application powered by FastAPI and Open-Meteo"
+description = "Weather Glint: a weather application powered by FastAPI and MET Norway"
 readme = "README.md"
 requires-python = ">=3.14,<3.15"
 dependencies = [

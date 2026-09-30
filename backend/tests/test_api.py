@@ -9,6 +9,54 @@ from fastapi.testclient import TestClient
 from backend.app.main import _prune_rate_limits, _request_counts, app, settings
 
 
+def met_forecast_payload() -> dict[str, object]:
+    start = datetime.now(UTC).replace(minute=0, second=0, microsecond=0) - timedelta(hours=1)
+    hours = list(range(49)) + list(range(54, 223, 6))
+    series = []
+    for hour in hours:
+        instant = start + timedelta(hours=hour)
+        local_hour = (instant.hour + 5) % 24
+        symbol = "partlycloudy_day" if 6 <= local_hour < 18 else "partlycloudy_night"
+        period = "next_1_hours" if hour < 49 else "next_6_hours"
+        series.append(
+            {
+                "time": instant.isoformat().replace("+00:00", "Z"),
+                "data": {
+                    "instant": {
+                        "details": {
+                            "air_temperature": 30.0,
+                            "relative_humidity": 70.0,
+                            "wind_speed": 3.0,
+                            "wind_from_direction": 220.0,
+                        }
+                    },
+                    period: {
+                        "summary": {"symbol_code": symbol},
+                        "details": {
+                            "precipitation_amount": (
+                                0.1 if hour == 0 else 0.6 if hour == 1 else 0.2
+                            ),
+                            "air_temperature_max": 33.0,
+                            "air_temperature_min": 27.0,
+                        },
+                    },
+                },
+            }
+        )
+    return {
+        "properties": {
+            "meta": {
+                "units": {
+                    "air_temperature": "celsius",
+                    "wind_speed": "m/s",
+                    "precipitation_amount": "mm",
+                }
+            },
+            "timeseries": series,
+        }
+    }
+
+
 def forecast_payload() -> dict[str, object]:
     start = datetime(2026, 9, 23)
     times = [(start + timedelta(hours=i)).strftime("%Y-%m-%dT%H:%M") for i in range(168)]
@@ -83,38 +131,109 @@ def test_locations_are_normalized_and_cached() -> None:
 
 @respx.mock
 def test_weather_has_24_hours_and_seven_days() -> None:
-    respx.get("https://api.open-meteo.com/v1/forecast").mock(
-        return_value=httpx.Response(200, json=forecast_payload())
+    payload = met_forecast_payload()
+    respx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact").mock(
+        return_value=httpx.Response(200, json=payload)
     )
     with TestClient(app) as client:
         response = client.get(
-            "/api/v1/weather", params={"latitude": 24.86, "longitude": 67.01, "units": "metric"}
+            "/api/v1/weather",
+            params={
+                "latitude": 24.86,
+                "longitude": 67.01,
+                "timezone": "Asia/Karachi",
+                "units": "metric",
+            },
         )
     assert response.status_code == 200, response.text
     data = response.json()
     assert data["timezone"] == "Asia/Karachi"
     assert data["current"]["condition"] == "Partly cloudy"
-    assert data["hourly"][0]["time"] == "2026-09-23T12:00"
+    properties = payload["properties"]
+    assert isinstance(properties, dict)
+    series = properties["timeseries"]
+    assert isinstance(series, list)
+    next_entry = series[1]
+    assert isinstance(next_entry, dict)
+    next_time = next_entry["time"]
+    assert isinstance(next_time, str)
+    expected_time = datetime.fromisoformat(next_time.replace("Z", "+00:00"))
+    expected_local = expected_time.astimezone(ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%dT%H:%M")
+    assert data["current"]["time"] == expected_local
+    assert data["hourly"][0]["time"] == expected_local
     assert len(data["hourly"]) == 24
-    assert data["hourly"][0]["is_day"] is True
-    assert data["hourly"][6]["is_day"] is False
-    assert data["hourly"][-1]["time"] == "2026-09-24T11:00"
+    assert data["hourly"][0]["is_day"] is (
+        6 <= expected_time.astimezone(ZoneInfo("Asia/Karachi")).hour < 18
+    )
+    assert datetime.fromisoformat(data["hourly"][-1]["time"]) == (
+        datetime.fromisoformat(expected_local) + timedelta(hours=23)
+    )
     assert len(data["daily"]) == 7
-    assert data["units"]["temperature"] == "°C"
+    assert data["units"]["temperature"] == "\u00b0C"
+    assert data["current"]["apparent_temperature"] is None
+    assert data["current"]["precipitation"] == 0.6
+    assert data["hourly"][0]["precipitation_probability_percent"] is None
+    assert data["daily"][0]["uv_index_max"] is None
+    assert data["source"] == "MET Norway"
+
+
+def test_met_mapper_advances_the_next_hour_as_cached_forecast_ages() -> None:
+    from backend.app.core.errors import ProviderError
+    from backend.app.services.met_weather import map_met_weather, parse_met_forecast
+
+    forecast = parse_met_forecast(met_forecast_payload())
+    first_hour = forecast.points[0].time
+
+    def mapped(at: datetime) -> float | None:
+        return map_met_weather(
+            forecast, 24.8608, 67.0104, "Asia/Karachi", "metric", now=at
+        ).current.precipitation
+
+    assert mapped(first_hour + timedelta(hours=1)) == 0.6
+    assert mapped(first_hour + timedelta(hours=1, minutes=59)) == 0.6
+    assert mapped(first_hour + timedelta(hours=2)) == 0.2
+    with pytest.raises(ProviderError):
+        mapped(forecast.points[-1].time + timedelta(hours=1))
+
+
+def test_met_mapper_updates_response_time_when_cached_forecast_is_reused() -> None:
+    from backend.app.services.met_weather import map_met_weather, parse_met_forecast
+
+    forecast = parse_met_forecast(met_forecast_payload())
+    checked_at = forecast.points[0].time + timedelta(hours=1, minutes=10)
+    refreshed_at = checked_at + timedelta(minutes=18)
+
+    first = map_met_weather(forecast, 24.8608, 67.0104, "Asia/Karachi", "metric", now=checked_at)
+    refreshed = map_met_weather(
+        forecast, 24.8608, 67.0104, "Asia/Karachi", "metric", now=refreshed_at
+    )
+
+    assert first.generated_at == checked_at
+    assert refreshed.generated_at == refreshed_at
+    assert refreshed.generated_at > first.generated_at
+    assert refreshed.current == first.current
+    assert forecast.fetched_at != refreshed.generated_at
 
 
 @respx.mock
-def test_forecast_requests_hourly_daylight() -> None:
-    route = respx.get("https://api.open-meteo.com/v1/forecast").mock(
-        return_value=httpx.Response(200, json=forecast_payload())
+def test_forecast_identifies_app_and_limits_coordinate_precision() -> None:
+    route = respx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact").mock(
+        return_value=httpx.Response(200, json=met_forecast_payload())
     )
     with TestClient(app) as client:
-        response = client.get("/api/v1/weather", params={"latitude": 24.86, "longitude": 67.01})
+        response = client.get(
+            "/api/v1/weather",
+            params={
+                "latitude": 24.86081,
+                "longitude": 67.01041,
+                "timezone": "Asia/Karachi",
+            },
+        )
     assert response.status_code == 200
-    assert "is_day" in route.calls[0].request.url.params["hourly"].split(",")
-    assert {"sunrise", "sunset", "uv_index_max"}.issubset(
-        set(route.calls[0].request.url.params["daily"].split(","))
-    )
+    upstream = route.calls[0].request
+    assert upstream.headers["user-agent"] == settings.met_norway_user_agent
+    assert upstream.url.params["lat"] == "24.8608"
+    assert upstream.url.params["lon"] == "67.0104"
 
 
 def test_solar_fields_map_with_local_date_and_missing_values() -> None:
@@ -160,15 +279,17 @@ def test_invalid_solar_fields_are_rejected() -> None:
 
 @respx.mock
 def test_misaligned_or_invalid_provider_data_becomes_safe_error() -> None:
-    for change in ("short_hourly", "bad_probability"):
-        payload = forecast_payload()
-        hourly = payload["hourly"]
-        assert isinstance(hourly, dict)
+    for change in ("short_hourly", "bad_temperature"):
+        payload = met_forecast_payload()
+        properties = payload["properties"]
+        assert isinstance(properties, dict)
+        series = properties["timeseries"]
+        assert isinstance(series, list)
         if change == "short_hourly":
-            hourly["is_day"] = [1]
-        elif change == "bad_probability":
-            hourly["precipitation_probability"] = [101] * 168
-        respx.get("https://api.open-meteo.com/v1/forecast").mock(
+            del series[5]
+        else:
+            series[0]["data"]["instant"]["details"]["air_temperature"] = "not-a-number"
+        respx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact").mock(
             return_value=httpx.Response(200, json=payload)
         )
         with TestClient(app) as client:
@@ -271,6 +392,15 @@ def test_invalid_coordinates_are_rejected() -> None:
     assert response.status_code == 422
 
 
+def test_invalid_timezone_is_rejected_before_provider_request() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/weather",
+            json={"latitude": 24.86, "longitude": 67.01, "timezone": "Mars/Olympus"},
+        )
+    assert response.status_code == 422
+
+
 def test_whitespace_only_search_is_rejected() -> None:
     with TestClient(app) as client:
         response = client.get("/api/v1/locations", params={"query": "   "})
@@ -279,8 +409,8 @@ def test_whitespace_only_search_is_rejected() -> None:
 
 @respx.mock
 def test_imperial_request_uses_provider_units() -> None:
-    route = respx.get("https://api.open-meteo.com/v1/forecast").mock(
-        return_value=httpx.Response(200, json=forecast_payload())
+    route = respx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact").mock(
+        return_value=httpx.Response(200, json=met_forecast_payload())
     )
     with TestClient(app) as client:
         response = client.get(
@@ -288,12 +418,13 @@ def test_imperial_request_uses_provider_units() -> None:
         )
     assert response.status_code == 200
     assert response.json()["units"] == {
-        "temperature": "°F",
+        "temperature": "\u00b0F",
         "wind_speed": "mph",
         "precipitation": "in",
     }
-    assert route.calls[0].request.url.params["temperature_unit"] == "fahrenheit"
-    assert route.calls[0].request.url.params["wind_speed_unit"] == "mph"
+    assert response.json()["current"]["temperature"] == 86
+    assert response.json()["current"]["wind_speed"] == pytest.approx(6.71, rel=0.01)
+    assert "temperature_unit" not in route.calls[0].request.url.params
 
 
 @respx.mock
@@ -309,7 +440,7 @@ def test_empty_geocoding_results_are_valid() -> None:
 
 @respx.mock
 def test_malformed_provider_payload_is_safe_error() -> None:
-    respx.get("https://api.open-meteo.com/v1/forecast").mock(
+    respx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact").mock(
         return_value=httpx.Response(200, json={"current": {}})
     )
     with TestClient(app) as client:
@@ -476,8 +607,8 @@ def test_post_endpoints_avoid_sensitive_query_strings() -> None:
     respx.get("https://geocoding-api.open-meteo.com/v1/search").mock(
         return_value=httpx.Response(200, json={"results": []})
     )
-    respx.get("https://api.open-meteo.com/v1/forecast").mock(
-        return_value=httpx.Response(200, json=forecast_payload())
+    respx.get("https://api.met.no/weatherapi/locationforecast/2.0/compact").mock(
+        return_value=httpx.Response(200, json=met_forecast_payload())
     )
     with TestClient(app) as client:
         places = client.post("/api/v1/locations", json={"query": "Karachi", "limit": 6})

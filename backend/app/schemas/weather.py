@@ -23,9 +23,9 @@ class Coordinates(BaseModel):
 class CurrentWeather(BaseModel):
     time: str
     temperature: float
-    apparent_temperature: float
+    apparent_temperature: float | None
     humidity_percent: int
-    precipitation: float
+    precipitation: float | None
     wind_speed: float
     wind_direction_degrees: int
     is_day: bool
@@ -68,8 +68,8 @@ class WeatherResponse(BaseModel):
     current: CurrentWeather
     hourly: list[HourlyWeather] = Field(min_length=1, max_length=24)
     daily: list[DailyWeather] = Field(min_length=7, max_length=7)
-    source: str = "Open-Meteo"
-    attribution_url: str = "https://open-meteo.com/"
+    source: str = "MET Norway"
+    attribution_url: str = "https://api.met.no/doc/License"
 
 
 class ErrorResponse(BaseModel):

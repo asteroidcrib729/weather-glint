@@ -1,5 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
-import { ApiError, formatClock, formatDate, formatDay, formatGeneratedAt, formatHour, formatNumber, formatPrecipitation, formatProbability, formatTemperature, getWeather, savedLocations, searchLocations, weatherSymbol } from "@/lib/weather";
+import {
+  ApiError,
+  formatClock,
+  formatDate,
+  formatDay,
+  formatGeneratedAt,
+  formatHour,
+  formatNumber,
+  formatPrecipitation,
+  formatProbability,
+  formatTemperature,
+  formatZonedDateTime,
+  getWeather,
+  savedLocations,
+  searchLocations,
+  weatherSymbol,
+} from "@/lib/weather";
 
 describe("location-local weather formatting", () => {
   it("uses the provider's local timestamp without applying the browser time zone", () => {
@@ -19,17 +35,46 @@ describe("location-local weather formatting", () => {
   it("formats missing precipitation without a percent sign", () => {
     expect(formatProbability(null)).toBe("Not available");
     expect(formatProbability(0)).toBe("0%");
+    expect(formatPrecipitation(null, "metric")).toBe("Not available");
+    expect(formatPrecipitation(0, "metric")).toBe("0");
+    expect(formatPrecipitation(0.04, "metric")).toBe("<0.1");
+    expect(formatPrecipitation(0.2, "metric")).toBe("0.2");
     expect(formatPrecipitation(0.1 / 25.4, "imperial")).toBe("<0.01");
   });
 
   it("formats response generation in the selected location's time zone", () => {
-    expect(formatGeneratedAt("2026-09-23T23:30:00Z", "Asia/Karachi")).toContain("4:30");
-    expect(formatGeneratedAt("2026-09-23T23:30:00Z", "Europe/London")).toContain("12:30");
-    const beforeFallback = formatGeneratedAt("2026-10-25T00:30:00Z", "Europe/London");
-    const afterFallback = formatGeneratedAt("2026-10-25T01:30:00Z", "Europe/London");
+    expect(formatGeneratedAt("2026-09-23T23:30:00Z", "Asia/Karachi")).toContain(
+      "4:30",
+    );
+    expect(
+      formatGeneratedAt("2026-09-23T23:30:00Z", "Europe/London"),
+    ).toContain("12:30");
+    const beforeFallback = formatGeneratedAt(
+      "2026-10-25T00:30:00Z",
+      "Europe/London",
+    );
+    const afterFallback = formatGeneratedAt(
+      "2026-10-25T01:30:00Z",
+      "Europe/London",
+    );
     expect(beforeFallback).toContain("1:30");
     expect(afterFallback).toContain("1:30");
     expect(beforeFallback).not.toBe(afterFallback);
+  });
+
+  it("shows the live Karachi date after midnight independently of the forecast hour", () => {
+    const instant = Date.parse("2026-09-29T19:01:00Z");
+    expect(formatZonedDateTime(instant, "Asia/Karachi")).toEqual({
+      date: "Wednesday, September 30",
+      clock: "12:01 AM",
+    });
+    expect(formatClock("2026-09-29T23:00")).toBe("11:00 PM");
+    expect(formatZonedDateTime(instant, "Europe/London")).toEqual({
+      date: "Tuesday, September 29",
+      clock: "8:01 PM",
+    });
+    expect(formatZonedDateTime(0, "Asia/Karachi")).toBeNull();
+    expect(formatZonedDateTime(instant, "Invalid/Zone")).toBeNull();
   });
 
   it("localizes wall-clock dates and numbers without moving the provider's local hour", () => {
@@ -42,28 +87,98 @@ describe("location-local weather formatting", () => {
   });
 
   it("removes saved geolocation and malformed recent places", () => {
-    const city = { id: 10, name: "London", country: "UK", latitude: 51.5, longitude: -0.1 };
-    expect(savedLocations([{ ...city, id: -1 }, city, { ...city, latitude: Infinity }])).toEqual([city]);
+    const city = {
+      id: 10,
+      name: "London",
+      country: "UK",
+      latitude: 51.5,
+      longitude: -0.1,
+    };
+    expect(
+      savedLocations([
+        { ...city, id: -1 },
+        city,
+        { ...city, latitude: Infinity },
+      ]),
+    ).toEqual([city]);
     expect(savedLocations({ id: 1 })).toEqual([]);
   });
 });
 
 describe("API client", () => {
   it("sends place searches in a JSON body without a query URL", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => [] });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => [] });
     vi.stubGlobal("fetch", fetchMock);
     await expect(searchLocations("New York, US")).resolves.toEqual([]);
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/locations");
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ query: "New York, US", limit: 6 }) });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({ query: "New York, US", limit: 6 }),
+    });
     vi.unstubAllGlobals();
   });
 
   it("surfaces a rate-limit response and sends coordinates in a JSON body", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({ message: "Try later" }) });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      json: async () => ({ message: "Try later" }),
+    });
     vi.stubGlobal("fetch", fetchMock);
-    await expect(getWeather({ id: 1, name: "Test", country: "", latitude: 24.86, longitude: 67.01 }, "metric")).rejects.toEqual(new ApiError("Try later", 429));
+    await expect(
+      getWeather(
+        {
+          id: 1,
+          name: "Test",
+          country: "",
+          latitude: 24.86,
+          longitude: 67.01,
+          timezone: "Asia/Karachi",
+        },
+        "metric",
+      ),
+    ).rejects.toEqual(new ApiError("Try later", 429));
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/weather");
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST", body: JSON.stringify({ latitude: 24.86, longitude: 67.01, units: "metric" }) });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+      method: "POST",
+      body: JSON.stringify({
+        latitude: 24.86,
+        longitude: 67.01,
+        units: "metric",
+        timezone: "Asia/Karachi",
+      }),
+    });
     vi.unstubAllGlobals();
+  });
+
+  it("uses the browser time zone when a location has no time zone", async () => {
+    const browserOptions = Intl.DateTimeFormat().resolvedOptions();
+    const timezoneSpy = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ ...browserOptions, timeZone: "Pacific/Auckland" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await getWeather(
+        { id: 1, name: "Test", country: "", latitude: 24.86, longitude: 67.01 },
+        "metric",
+      );
+      expect(fetchMock.mock.calls[0][1].body).toBe(
+        JSON.stringify({
+          latitude: 24.86,
+          longitude: 67.01,
+          units: "metric",
+          timezone: "Pacific/Auckland",
+        }),
+      );
+    } finally {
+      timezoneSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

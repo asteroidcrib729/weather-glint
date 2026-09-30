@@ -13,9 +13,17 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className="scroll-smooth motion-reduce:scroll-auto dark:scheme-dark" suppressHydrationWarning>
-      <head><script dangerouslySetInnerHTML={{ __html: themeBootstrap }} /></head>
-      <body className="min-h-screen bg-[#f5faf9] font-[Arial,Helvetica,sans-serif] antialiased dark:bg-[#0c1720]"><ThemeProvider>{children}</ThemeProvider></body>
+    <html
+      lang="en"
+      className="scroll-smooth motion-reduce:scroll-auto dark:scheme-dark"
+      suppressHydrationWarning
+    >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrap }} />
+      </head>
+      <body className="min-h-screen bg-[#f5faf9] font-[Arial,Helvetica,sans-serif] antialiased dark:bg-[#0c1720]">
+        <ThemeProvider>{children}</ThemeProvider>
+      </body>
     </html>
   );
 }

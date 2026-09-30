@@ -7,6 +7,7 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 from typing import Annotated, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -16,37 +17,57 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from backend.app.clients.met_norway import MetNorwayClient, MetNorwayPilot
 from backend.app.clients.open_meteo import OpenMeteoClient
 from backend.app.core.client_ip import rate_limit_client_key
 from backend.app.core.config import get_settings
 from backend.app.core.errors import ProviderError
 from backend.app.core.metrics import OperationalMetrics
 from backend.app.schemas.weather import ErrorResponse, Location, WeatherResponse
-from backend.app.services.weather import map_locations, map_weather
+from backend.app.services.met_weather import map_met_weather
+from backend.app.services.weather import map_locations
 
 settings = get_settings()
 logger = logging.getLogger("uvicorn.error")
 
 
+async def _run_met_norway_pilot() -> None:
+    timeout = httpx.Timeout(connect=3.0, read=8.0, write=3.0, pool=3.0)
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as http:
+        await MetNorwayPilot(http, settings).run()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     timeout = httpx.Timeout(connect=3.0, read=6.0, write=3.0, pool=3.0)
-    async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as http:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as http:
         app.state.metrics = OperationalMetrics()
-        app.state.provider = OpenMeteoClient(http, settings, app.state.metrics)
-        cleanup = asyncio.create_task(_prune_periodically(app.state.provider, app.state.metrics))
+        app.state.geocoder = OpenMeteoClient(http, settings, app.state.metrics)
+        app.state.weather_provider = MetNorwayClient(http, settings, app.state.metrics)
+        cleanup = asyncio.create_task(
+            _prune_periodically(app.state.geocoder, app.state.weather_provider, app.state.metrics)
+        )
+        pilot = (
+            asyncio.create_task(_run_met_norway_pilot())
+            if settings.met_norway_pilot_on_startup
+            else None
+        )
         try:
             yield
         finally:
             cleanup.cancel()
             with suppress(asyncio.CancelledError):
                 await cleanup
+            if pilot is not None:
+                pilot.cancel()
+                with suppress(asyncio.CancelledError):
+                    await pilot
 
 
 app = FastAPI(
     title="Weather Glint API",
     version="1.0.0",
-    description="Current conditions and a seven-day forecast from Open-Meteo.",
+    description="Current conditions and a seven-day forecast from MET Norway.",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -65,12 +86,17 @@ def _prune_rate_limits(now: float) -> None:
             del _request_counts[ip]
 
 
-async def _prune_periodically(provider: OpenMeteoClient, metrics: OperationalMetrics) -> None:
+async def _prune_periodically(
+    geocoder: OpenMeteoClient,
+    weather_provider: MetNorwayClient,
+    metrics: OperationalMetrics,
+) -> None:
     while True:
         await asyncio.sleep(60)
         now = time.monotonic()
         _prune_rate_limits(now)
-        provider.prune_expired(now)
+        geocoder.prune_expired(now)
+        weather_provider.prune_expired(now)
         logger.info(json.dumps(metrics.drain(len(_request_counts))))
 
 
@@ -133,7 +159,11 @@ async def provider_error_handler(_request: Request, exc: ProviderError) -> JSONR
 
 
 def get_provider(request: Request) -> OpenMeteoClient:
-    return request.app.state.provider  # type: ignore[no-any-return]
+    return request.app.state.geocoder  # type: ignore[no-any-return]
+
+
+def get_weather_provider(request: Request) -> MetNorwayClient:
+    return request.app.state.weather_provider  # type: ignore[no-any-return]
 
 
 @app.get("/api/v1/health")
@@ -186,15 +216,17 @@ async def _locations(query: str, limit: int, provider: OpenMeteoClient) -> list[
 async def weather(
     latitude: Annotated[float, Query(ge=-90, le=90, examples=[24.8608])],
     longitude: Annotated[float, Query(ge=-180, le=180, examples=[67.0104])],
-    provider: Annotated[OpenMeteoClient, Depends(get_provider)],
+    provider: Annotated[MetNorwayClient, Depends(get_weather_provider)],
+    timezone: Annotated[str, Query(min_length=1, max_length=100)] = "UTC",
     units: Literal["metric", "imperial"] = "metric",
 ) -> WeatherResponse:
-    return await _weather(latitude, longitude, units, provider)
+    return await _weather(latitude, longitude, units, timezone, provider)
 
 
 class WeatherRequest(BaseModel):
     latitude: float = Field(ge=-90, le=90, allow_inf_nan=False)
     longitude: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    timezone: str = Field(default="UTC", min_length=1, max_length=100)
     units: Literal["metric", "imperial"] = "metric"
 
 
@@ -204,16 +236,23 @@ class WeatherRequest(BaseModel):
     responses={502: {"model": ErrorResponse}, 503: {"model": ErrorResponse}},
 )
 async def weather_post(
-    request: WeatherRequest, provider: Annotated[OpenMeteoClient, Depends(get_provider)]
+    request: WeatherRequest, provider: Annotated[MetNorwayClient, Depends(get_weather_provider)]
 ) -> WeatherResponse:
-    return await _weather(request.latitude, request.longitude, request.units, provider)
+    return await _weather(
+        request.latitude, request.longitude, request.units, request.timezone, provider
+    )
 
 
 async def _weather(
     latitude: float,
     longitude: float,
     units: Literal["metric", "imperial"],
-    provider: OpenMeteoClient,
+    timezone: str,
+    provider: MetNorwayClient,
 ) -> WeatherResponse:
-    payload = await provider.forecast(latitude, longitude, units)
-    return map_weather(payload, units)
+    try:
+        ZoneInfo(timezone)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
+        raise HTTPException(status_code=422, detail="Unknown time zone.") from exc
+    forecast = await provider.forecast(latitude, longitude)
+    return map_met_weather(forecast, latitude, longitude, timezone, units)

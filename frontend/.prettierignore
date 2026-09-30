@@ -1,0 +1,15 @@
+# Generated output and installed packages
+.next/
+.next-met-integration/
+node_modules/
+coverage/
+out/
+build/
+test-results/
+playwright-report/
+
+# Managed instructions and generated dependency metadata
+AGENTS.md
+CLAUDE.md
+package-lock.json
+next-env.d.ts

@@ -19,9 +19,9 @@ export type Coordinates = {
 export type CurrentWeather = {
   time: string;
   temperature: number;
-  apparent_temperature: number;
+  apparent_temperature: number | null;
   humidity_percent: number;
-  precipitation: number;
+  precipitation: number | null;
   wind_speed: number;
   wind_direction_degrees: number;
   is_day: boolean;
