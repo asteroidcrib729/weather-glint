@@ -129,7 +129,14 @@ describe("API client", () => {
     vi.stubGlobal("fetch", fetchMock);
     await expect(
       getWeather(
-        { id: 1, name: "Test", country: "", latitude: 24.86, longitude: 67.01 },
+        {
+          id: 1,
+          name: "Test",
+          country: "",
+          latitude: 24.86,
+          longitude: 67.01,
+          timezone: "Asia/Karachi",
+        },
         "metric",
       ),
     ).rejects.toEqual(new ApiError("Try later", 429));
@@ -144,5 +151,34 @@ describe("API client", () => {
       }),
     });
     vi.unstubAllGlobals();
+  });
+
+  it("uses the browser time zone when a location has no time zone", async () => {
+    const browserOptions = Intl.DateTimeFormat().resolvedOptions();
+    const timezoneSpy = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ ...browserOptions, timeZone: "Pacific/Auckland" });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      await getWeather(
+        { id: 1, name: "Test", country: "", latitude: 24.86, longitude: 67.01 },
+        "metric",
+      );
+      expect(fetchMock.mock.calls[0][1].body).toBe(
+        JSON.stringify({
+          latitude: 24.86,
+          longitude: 67.01,
+          units: "metric",
+          timezone: "Pacific/Auckland",
+        }),
+      );
+    } finally {
+      timezoneSpy.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });
