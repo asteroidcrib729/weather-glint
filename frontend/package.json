@@ -16,7 +16,7 @@
     "measure:local": "node scripts/measure-local.mjs"
   },
   "dependencies": {
-    "next": "16.3.6",
+    "next": "16.3.7",
     "react": "19.3.0",
     "react-dom": "19.3.0"
   },
@@ -33,7 +33,7 @@
     "axe-core": "4.13.0",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.3.7",
     "jsdom": "^30.1.1",
     "prettier": "3.9.9",
     "tailwindcss": "^4.3.3",
